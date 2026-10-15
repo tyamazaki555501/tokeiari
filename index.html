@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>試験時間割・アナログ時計（モニター表示対応版）</title>
+<style>
+  :root {
+    --bg-color: #121212;
+    --panel-bg: #1e1e1e;
+    --text-color: #ffffff;
+    --accent-color: #4da6ff;
+    --current-bg: #2d4059;
+    --jr-red: #d32f2f;
+    --table-font-size: 1.3rem;
+    --notice-font-size: 1.1rem;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* モニター表示モード（操作UI非表示） */
+  body.display-mode .no-display,
+  body.display-mode .title-edit-container,
+  body.display-mode .control-panel,
+  body.display-mode .col-op {
+    display: none !important;
+  }
+
+  /* 全画面切替フローティングボタン（画面右下に配置） */
+  .mode-toggle-btn {
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    z-index: 9999;
+    background-color: rgba(40, 40, 40, 0.75);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    backdrop-filter: blur(5px);
+    transition: all 0.3s;
+  }
+  .mode-toggle-btn:hover {
+    background-color: var(--accent-color);
+    color: #000;
+  }
+
+  .app-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+  }
+
+  .app-container.layout-right {
+    flex-direction: row-reverse;
+  }
+
+  /* 時計エリア */
+  .clock-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    border-right: 2px solid #333;
+    padding: 20px;
+  }
+
+  .app-container.layout-right .clock-section {
+    border-right: none;
+    border-left: 2px solid #333;
+  }
+
+  .clock-container {
+    width: 65vmin;
+    height: 65vmin;
+    background-color: #f8f9fa;
+    border-radius: 50%;
+    box-shadow: 0 0 30px rgba(0,0,0,0.5), inset 0 0 15px rgba(0,0,0,0.2);
+    position: relative;
+  }
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* 日程表エリア */
+  .schedule-section {
+    flex: 1.3;
+    padding: 25px 30px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+
+  .schedule-section.notice-top { flex-direction: column; }
+  .schedule-section.notice-top .notice-section { order: 1; margin-top: 0; }
+  .schedule-section.notice-top .title-container { order: 2; }
+  .schedule-section.notice-top .title-edit-container { order: 3; }
+  .schedule-section.notice-top .table-container { order: 4; }
+
+  .control-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    background-color: #1a1a1a;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #333;
+  }
+
+  .control-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9rem;
+  }
+
+  input, select, button, textarea {
+    background-color: var(--panel-bg);
+    color: var(--text-color);
+    border: 1px solid #444;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+  }
+
+  input[type="text"] { font-weight: bold; }
+
+  button {
+    cursor: pointer;
+    background-color: #333;
+    color: #fff;
+    border: 1px solid #555;
+    font-weight: bold;
+    transition: 0.2s;
+  }
+
+  button:hover { background-color: #444; }
+  button.primary { background-color: var(--accent-color); color: #000; border: none; }
+  button.save-btn { background-color: #2e7d32; color: #fff; border: none; }
+
+  .title-container h1 {
+    margin: 0;
+    font-size: 2.2rem;
+    color: var(--accent-color);
+  }
+
+  .schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--table-font-size);
+  }
+
+  .schedule-table th, .schedule-table td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #333;
+  }
+
+  .schedule-table th {
+    color: #888;
+    font-size: 0.8em;
+  }
+
+  .schedule-table td input {
+    font-size: 1em;
+    background: transparent;
+    border: none;
+    color: #fff;
+    padding: 0;
+    width: 100%;
+  }
+
+  /* 編集モード時のみ枠線表示 */
+  body:not(.display-mode) .schedule-table td input {
+    background-color: var(--panel-bg);
+    border: 1px solid #444;
+    padding: 4px 8px;
+  }
+
+  .time-input { width: 160px; }
+  .subject-input { width: 100%; }
+
+  .notice-section {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .notice-title {
+    font-size: 1rem;
+    color: #aaa;
+    font-weight: bold;
+  }
+
+  textarea.notice-input {
+    width: 100%;
+    height: 100px;
+    resize: vertical;
+    font-size: var(--notice-font-size);
+    line-height: 1.5;
+    box-sizing: border-box;
+    background-color: #181818;
+    color: #ffeb3b;
+    border: 1px dashed #555;
+    white-space: pre-wrap;
+  }
+
+  /* モニター表示モード時の注意事項枠・プレースホルダー非表示化 */
+  body.display-mode textarea.notice-input {
+    background-color: transparent;
+    border: none;
+    resize: none;
+    padding: 0;
+    pointer-events: none;
+  }
+
+  /* 注意事項が未入力の場合は領域ごと非表示 */
+  body.display-mode .notice-section.empty {
+    display: none !important;
+  }
+
+  .save-status {
+    font-size: 0.85rem;
+    color: #4caf50;
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+</style>
+</head>
+<body class="display-mode">
+
+<button class="mode-toggle-btn" onclick="toggleDisplayMode()">⚙️ 編集モードにする</button>
+
+<div id="app" class="app-container">
+
+  <!-- 時計エリア -->
+  <div class="clock-section">
+    <div class="clock-container">
+      <svg viewBox="0 0 200 200">
+        <circle cx="100" cy="100" r="98" fill="#fcfcfc" stroke="#d0d0d0" stroke-width="2"/>
+        <g id="ticks"></g>
+        
+        <!-- 数字追加・位置＆サイズ修正箇所 -->
+        <g fill="#111" font-family="Helvetica, Arial, sans-serif" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="central">
+          <text x="100" y="38">12</text>
+          <text x="162" y="100">3</text>
+          <text x="100" y="162">6</text>
+          <text x="38" y="100">9</text>
+        </g>
+
+        <line id="hour-hand" x1="100" y1="100" x2="100" y2="55" stroke="#111" stroke-width="7" stroke-linecap="square"/>
+        <line id="min-hand" x1="100" y1="100" x2="100" y2="25" stroke="#111" stroke-width="5" stroke-linecap="square"/>
+        <g id="sec-hand-group">
+          <line x1="100" y1="115" x2="100" y2="20" stroke="#d32f2f" stroke-width="2"/>
+          <polygon points="100,108 96,113 100,118 104,113" fill="#d32f2f" />
+        </g>
+        <circle cx="100" cy="100" r="4" fill="#111"/>
+        <circle cx="100" cy="100" r="1.5" fill="#d32f2f"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 日程表エリア -->
+  <div id="schedule-section" class="schedule-section">
+    
+    <div class="control-panel no-display">
+      <div class="control-group">
+        <label>日程:</label>
+        <select id="day-select" onchange="switchDay()">
+          <option value="day1">1日目</option>
+          <option value="day2">2日目</option>
+          <option value="day3">3日目</option>
+          <option value="day4">4日目</option>
+          <option value="day5">5日目</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>時計位置:</label>
+        <select id="clock-pos-select" onchange="changeLayout()">
+          <option value="left">左</option>
+          <option value="right">右</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>注意事項:</label>
+        <select id="notice-pos-select" onchange="changeLayout()">
+          <option value="bottom">下部</option>
+          <option value="top">上部</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>表文字:</label>
+        <select id="table-font-select" onchange="changeFontSize()">
+          <option value="1.1rem">小</option>
+          <option value="1.3rem" selected>標準</option>
+          <option value="1.6rem">大</option>
+          <option value="2.0rem">特大</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>注意文字:</label>
+        <select id="notice-font-select" onchange="changeFontSize()">
+          <option value="0.9rem">小</option>
+          <option value="1.1rem" selected>標準</option>
+          <option value="1.4rem">大</option>
+          <option value="1.7rem">特大</option>
+        </select>
+      </div>
+
+      <button class="save-btn" onclick="saveData()">💾 保存</button>
+      <span id="save-status" class="save-status">保存完了</span>
+    </div>
+
+    <div class="title-container">
+      <h1 id="display-title">1学期 期末試験（第1日）</h1>
+    </div>
+
+    <div class="title-edit-container no-display" style="display:flex; gap:10px;">
+      <input type="text" id="exam-title" value="1学期 期末試験（第1日）" style="width: 65%;" placeholder="試験タイトルを入力">
+      <button class="primary" onclick="addRow()">+ 時間割を追加</button>
+    </div>
+
+    <div class="table-container">
+      <table class="schedule-table">
+        <thead>
+          <tr>
+            <th style="width: 18%;">限次</th>
+            <th style="width: 37%;">時間帯</th>
+            <th style="width: 32%;">科目</th>
+            <th style="width: 13%;" class="col-op">操作</th>
+          </tr>
+        </thead>
+        <tbody id="schedule-body"></tbody>
+      </table>
+    </div>
+
+    <div id="notice-section-container" class="notice-section">
+      <div class="notice-title">【連絡・注意事項】</div>
+      <textarea id="notice-text" class="notice-input" placeholder="（※ここに入力した注意事項が表示されます）" oninput="checkNoticeEmpty()"></textarea>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  const ticksGroup = document.getElementById('ticks');
+  for (let i = 0; i < 60; i++) {
+    const angle = i * 6;
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    const isHour = i % 5 === 0;
+    const r1 = isHour ? 76 : 84;
+    const r2 = 92;
+    const width = isHour ? 4.5 : 1.8;
+    const rad = (angle - 90) * (Math.PI / 180);
+    line.setAttribute('x1', 100 + r1 * Math.cos(rad));
+    line.setAttribute('y1', 100 + r1 * Math.sin(rad));
+    line.setAttribute('x2', 100 + r2 * Math.cos(rad));
+    line.setAttribute('y2', 100 + r2 * Math.sin(rad));
+    line.setAttribute('stroke', '#111');
+    line.setAttribute('stroke-width', width);
+    ticksGroup.appendChild(line);
+  }
+
+  function updateClock() {
+    const now = new Date();
+    const sec = now.getSeconds() + now.getMilliseconds() / 1000;
+    const min = now.getMinutes() + sec / 60;
+    const hour = (now.getHours() % 12) + min / 60;
+
+    document.getElementById('hour-hand').setAttribute('transform', `rotate(${hour * 30}, 100, 100)`);
+    document.getElementById('min-hand').setAttribute('transform', `rotate(${min * 6}, 100, 100)`);
+    document.getElementById('sec-hand-group').setAttribute('transform', `rotate(${sec * 6}, 100, 100)`);
+    requestAnimationFrame(updateClock);
+  }
+  requestAnimationFrame(updateClock);
+
+  document.getElementById('exam-title').addEventListener('input', function(e) {
+    document.getElementById('display-title').textContent = e.target.value;
+  });
+
+  function toggleDisplayMode() {
+    const body = document.body;
+    const btn = document.querySelector('.mode-toggle-btn');
+    
+    if (body.classList.contains('display-mode')) {
+      body.classList.remove('display-mode');
+      btn.textContent = "📺 モニター表示モード（操作ボタン類を隠す）";
+    } else {
+      updateDataFromUI();
+      body.classList.add('display-mode');
+      btn.textContent = "⚙️ 編集モードにする";
+    }
+  }
+
+  function checkNoticeEmpty() {
+    const text = document.getElementById('notice-text').value.trim();
+    const container = document.getElementById('notice-section-container');
+    if (text === "") {
+      container.classList.add('empty');
+    } else {
+      container.classList.remove('empty');
+    }
+  }
+
+  let settings = {
+    clockPos: "left",
+    noticePos: "bottom",
+    tableFontSize: "1.3rem",
+    noticeFontSize: "1.1rem"
+  };
+
+  let allData = {
+    day1: { title: "1学期 期末試験（第1日）", notice: "・携帯電話の電源を切って鞄にしまってください。\n・解答用紙の記入漏れに注意してください。", schedule: [{ period: "1限", time: "08:50 - 09:40", subject: "国語総合" }, { period: "2限", time: "10:00 - 10:50", subject: "数学I" }] },
+    day2: { title: "1学期 期末試験（第2日）", notice: "", schedule: [] },
+    day3: { title: "1学期 期末試験（第3日）", notice: "", schedule: [] },
+    day4: { title: "1学期 期末試験（第4日）", notice: "", schedule: [] },
+    day5: { title: "1学期 期末試験（第5日）", notice: "", schedule: [] }
+  };
+
+  let currentKey = "day1";
+
+  function changeLayout() {
+    const clockPos = document.getElementById('clock-pos-select').value;
+    const noticePos = document.getElementById('notice-pos-select').value;
+    const app = document.getElementById('app');
+    const scheduleSection = document.getElementById('schedule-section');
+
+    if (clockPos === 'right') app.classList.add('layout-right');
+    else app.classList.remove('layout-right');
+
+    if (noticePos === 'top') scheduleSection.classList.add('notice-top');
+    else scheduleSection.classList.remove('notice-top');
+
+    settings.clockPos = clockPos;
+    settings.noticePos = noticePos;
+  }
+
+  function changeFontSize() {
+    const tSize = document.getElementById('table-font-select').value;
+    const nSize = document.getElementById('notice-font-select').value;
+
+    document.documentElement.style.setProperty('--table-font-size', tSize);
+    document.documentElement.style.setProperty('--notice-font-size', nSize);
+
+    settings.tableFontSize = tSize;
+    settings.noticeFontSize = nSize;
+  }
+
+  function renderCurrentDay() {
+    const data = allData[currentKey] || { title: "", notice: "", schedule: [] };
+    document.getElementById('exam-title').value = data.title;
+    document.getElementById('display-title').textContent = data.title;
+    document.getElementById('notice-text').value = data.notice;
+
+    checkNoticeEmpty();
+
+    const tbody = document.getElementById('schedule-body');
+    tbody.innerHTML = '';
+    data.schedule.forEach((item, index) => {
+      appendRowUI(item.period || `${index + 1}限`, item.time, item.subject);
+    });
+  }
+
+  function appendRowUI(period, time, subject) {
+    const tbody = document.getElementById('schedule-body');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" value="${period}" class="period-input"></td>
+      <td><input type="text" value="${time}" class="time-input"></td>
+      <td><input type="text" value="${subject}" class="subject-input"></td>
+      <td class="col-op"><button onclick="deleteRow(this)" style="background:#444; color:#fff;">削除</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  function addRow() {
+    const tbody = document.getElementById('schedule-body');
+    appendRowUI(`${tbody.children.length + 1}限`, "00:00 - 00:00", "科目名");
+  }
+
+  function deleteRow(btn) { btn.closest('tr').remove(); }
+
+  function updateDataFromUI() {
+    const rows = document.querySelectorAll('#schedule-body tr');
+    const schedule = [];
+    rows.forEach(row => {
+      schedule.push({
+        period: row.querySelector('.period-input').value,
+        time: row.querySelector('.time-input').value,
+        subject: row.querySelector('.subject-input').value
+      });
+    });
+
+    allData[currentKey] = {
+      title: document.getElementById('exam-title').value,
+      notice: document.getElementById('notice-text').value,
+      schedule: schedule
+    };
+  }
+
+  function switchDay() {
+    updateDataFromUI();
+    currentKey = document.getElementById('day-select').value;
+    renderCurrentDay();
+  }
+
+  function saveData() {
+    updateDataFromUI();
+    localStorage.setItem('exam_schedule_data', JSON.stringify(allData));
+    localStorage.setItem('exam_schedule_settings', JSON.stringify(settings));
+
+    const status = document.getElementById('save-status');
+    status.style.opacity = '1';
+    setTimeout(() => { status.style.opacity = '0'; }, 2000);
+  }
+
+  function loadFromStorage() {
+    const savedData = localStorage.getItem('exam_schedule_data');
+    if (savedData) {
+      try { allData = JSON.parse(savedData); } catch(e){}
+    }
+
+    const savedSettings = localStorage.getItem('exam_schedule_settings');
+    if (savedSettings) {
+      try {
+        settings = JSON.parse(savedSettings);
+        document.getElementById('clock-pos-select').value = settings.clockPos || 'left';
+        document.getElementById('notice-pos-select').value = settings.noticePos || 'bottom';
+        document.getElementById('table-font-select').value = settings.tableFontSize || '1.3rem';
+        document.getElementById('notice-font-select').value = settings.noticeFontSize || '1.1rem';
+      } catch(e){}
+    }
+
+    changeLayout();
+    changeFontSize();
+    renderCurrentDay();
+  }
+
+  loadFromStorage();
+</script>
+</body>
+</html>
